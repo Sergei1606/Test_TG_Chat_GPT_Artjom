@@ -1,24 +1,57 @@
+"""
+Модуль handlers/personality_chat.py
+
+Обработчик диалога с историческими личностями через ChatGPT.
+Реализует выбор персонажа и ведение стилизованного диалога в его манере.
+"""
+
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.openai_client import get_personality_response
 from data.personalities import get_personality_keyboard, get_personality_data
-import os
 from handlers.basic import start
 
 logger = logging.getLogger(__name__)
 
+# Состояния ConversationHandler
 SELECTING_PERSONALITY, CHATTING_WITH_PERSONALITY = range(2)
 
+# Константы
+PERSONALITY_IMAGE_PATH = "data/images/personality.jpeg"
+DEFAULT_ERROR_MESSAGE = "😔 Произошла ошибка. Попробуйте позже."
 
-async def talk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка команды /talk"""
-    await talk_start(update, context)
+
+async def talk_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработчик команды /talk. Перенаправляет в talk_start().
+
+    Args:
+        update: Объект Update от Telegram API.
+        context: Контекст бота (ContextTypes.DEFAULT_TYPE).
+
+    Returns:
+        int: Следующее состояние ConversationHandler.
+    """
+    return await talk_start(update, context)
 
 
-async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Запускает интерфейс выбора личности, отправляя меню с вариантами.
+
+    Args:
+        update: Объект Update от Telegram API.
+        context: Контекст бота.
+
+    Returns:
+        int: Состояние SELECTING_PERSONALITY или -1 при ошибке.
+
+    Raises:
+        Exception: Логирует ошибки при отправке сообщения.
+    """
     try:
-        image_path = "data/images/personality.jpeg"
         message_text = (
             "👥 <b>Диалог с известной личностью</b>\n\n"
             "Выберите, с кем хотите поговорить:\n\n"
@@ -32,12 +65,10 @@ async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = get_personality_keyboard()
 
-        # Если есть callback query, значит это переход из другого меню
         if update.callback_query:
-            if os.path.exists(image_path):
-                # Удаляем старое сообщение и отправляем новое с фото
+            if os.path.exists(PERSONALITY_IMAGE_PATH):
                 await update.callback_query.message.delete()
-                with open(image_path, 'rb') as photo:
+                with open(PERSONALITY_IMAGE_PATH, 'rb') as photo:
                     await context.bot.send_photo(
                         chat_id=update.callback_query.message.chat_id,
                         photo=photo,
@@ -53,9 +84,8 @@ async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             await update.callback_query.answer()
         else:
-            # Обычное сообщение (команда /talk)
-            if os.path.exists(image_path):
-                with open(image_path, 'rb') as photo:
+            if os.path.exists(PERSONALITY_IMAGE_PATH):
+                with open(PERSONALITY_IMAGE_PATH, 'rb') as photo:
                     await update.message.reply_photo(
                         photo=photo,
                         caption=message_text,
@@ -72,37 +102,41 @@ async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELECTING_PERSONALITY
 
     except Exception as e:
-        logger.error(f"Ошибка при запуске диалога с личностями: {e}")
-        error_text = "😔 Произошла ошибка при запуске диалога. Попробуйте позже."
-
-        if update.callback_query:
-            await update.callback_query.edit_message_text(error_text)
-        else:
-            await update.message.reply_text(error_text)
-
+        logger.error(f"Ошибка в talk_start: {e}", exc_info=True)
+        await send_error_response(update, context)
         return -1
 
-async def personality_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора личности"""
+
+async def personality_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обрабатывает выбор конкретной личности пользователем.
+
+    Args:
+        update: Объект Update с callback_query.
+        context: Контекст бота.
+
+    Returns:
+        int: Состояние CHATTING_WITH_PERSONALITY или -1 при ошибке.
+    """
     query = update.callback_query
     await query.answer()
 
     try:
-        # Извлекаем ключ личности из callback_data
         personality_key = query.data.replace("personality_", "")
         personality = get_personality_data(personality_key)
 
         if not personality:
-            # Проверяем, есть ли в сообщении фото или текст
-            if query.message.photo:
-                await query.edit_message_caption("❌ Ошибка: личность не найдена.")
-            else:
-                await query.edit_message_text("❌ Ошибка: личность не найдена.")
+            await edit_or_send_message(
+                query,
+                "❌ Ошибка: личность не найдена.",
+                has_photo=bool(query.message.photo)
+            )
             return -1
 
-        # Сохраняем выбранную личность в контексте
-        context.user_data['current_personality'] = personality_key
-        context.user_data['personality_data'] = personality
+        context.user_data.update({
+            'current_personality': personality_key,
+            'personality_data': personality
+        })
 
         message_text = (
             f"{personality['emoji']} <b>Диалог с {personality['name']}</b>\n\n"
@@ -111,112 +145,140 @@ async def personality_selected(update: Update, context: ContextTypes.DEFAULT_TYP
             "✍️ Напишите что-нибудь:"
         )
 
-        # Проверяем, есть ли в сообщении фото
-        if query.message.photo:
-            # Если сообщение содержит фото, редактируем caption
-            await query.edit_message_caption(
-                caption=message_text,
-                parse_mode='HTML'
-            )
-        else:
-            # Если обычное текстовое сообщение, редактируем текст
-            await query.edit_message_text(
-                text=message_text,
-                parse_mode='HTML'
-            )
+        await edit_or_send_message(
+            query,
+            message_text,
+            has_photo=bool(query.message.photo)
+        )
 
         return CHATTING_WITH_PERSONALITY
 
     except Exception as e:
-        logger.error(f"Ошибка при выборе личности: {e}")
-        try:
-            # Пытаемся отправить сообщение об ошибке правильным способом
-            if query.message.photo:
-                await query.edit_message_caption("😔 Произошла ошибка. Попробуйте еще раз.")
-            else:
-                await query.edit_message_text("😔 Произошла ошибка. Попробуйте еще раз.")
-        except Exception:
-            # Если и это не работает, отправляем новое сообщение
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="😔 Произошла ошибка. Попробуйте еще раз."
-            )
+        logger.error(f"Ошибка в personality_selected: {e}", exc_info=True)
+        await send_error_response(update, context)
         return -1
 
 
-async def handle_personality_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка сообщения для личности"""
-    try:
-        user_message = update.message.text
-        personality_key = context.user_data.get('current_personality')
-        personality_data = context.user_data.get('personality_data')
+async def handle_personality_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обрабатывает текстовое сообщение для выбранной личности.
 
-        if not personality_key or not personality_data:
-            await update.message.reply_text(
-                "❌ Произошла ошибка: личность не выбрана. Используйте /talk для начала."
-            )
+    Args:
+        update: Объект Update с сообщением пользователя.
+        context: Контекст бота.
+
+    Returns:
+        int: Состояние CHATTING_WITH_PERSONALITY.
+    """
+    try:
+        personality_data = context.user_data.get('personality_data')
+        if not personality_data:
+            await update.message.reply_text("❌ Личность не выбрана. Используйте /talk")
             return -1
 
-        # Показываем индикатор "печатает"
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id,
+            action="typing"
+        )
 
-        # Отправляем сообщение о том, что обрабатываем запрос
         processing_msg = await update.message.reply_text(
             f"{personality_data['emoji']} {personality_data['name']} размышляет... ⏳"
         )
 
-        # Получаем ответ от ChatGPT в роли выбранной личности
-        personality_response = await get_personality_response(user_message, personality_data['prompt'])
+        response = await get_personality_response(
+            update.message.text,
+            personality_data['prompt']
+        )
 
-        # Создаем кнопки
-        keyboard = [
-            [InlineKeyboardButton("💬 Продолжить диалог", callback_data="continue_chat")],
-            [InlineKeyboardButton("👥 Выбрать другую личность", callback_data="change_personality")],
-            [InlineKeyboardButton("🏠 Закончить", callback_data="finish_talk")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💬 Продолжить", callback_data="continue_chat")],
+            [InlineKeyboardButton("👥 Сменить личность", callback_data="change_personality")],
+            [InlineKeyboardButton("🏠 Выход", callback_data="finish_talk")]
+        ])
 
-        # Удаляем сообщение об обработке и отправляем ответ
         await processing_msg.delete()
         await update.message.reply_text(
-            f"{personality_data['emoji']} <b>{personality_data['name']} отвечает:</b>\n\n{personality_response}",
+            f"{personality_data['emoji']} <b>{personality_data['name']} отвечает:</b>\n\n{response}",
             parse_mode='HTML',
-            reply_markup=reply_markup
+            reply_markup=keyboard
         )
 
         return CHATTING_WITH_PERSONALITY
 
     except Exception as e:
-        logger.error(f"Ошибка при обработке сообщения для личности: {e}")
-        await update.message.reply_text(
-            "😔 Произошла ошибка при обработке сообщения. Попробуйте еще раз."
-        )
+        logger.error(f"Ошибка в handle_personality_message: {e}", exc_info=True)
+        await update.message.reply_text(DEFAULT_ERROR_MESSAGE)
         return CHATTING_WITH_PERSONALITY
 
 
-async def handle_personality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка кнопок в диалоге с личностью"""
+async def handle_personality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обрабатывает callback-кнопки в диалоге с личностью.
+
+    Args:
+        update: Объект Update с callback_query.
+        context: Контекст бота.
+
+    Returns:
+        int: Новое состояние ConversationHandler.
+    """
     query = update.callback_query
     await query.answer()
 
-    if query.data == "continue_chat":
-        personality_data = context.user_data.get('personality_data')
-        if personality_data:
-            await query.edit_message_text(
-                f"{personality_data['emoji']} <b>Продолжаем диалог с {personality_data['name']}</b>\n\n"
-                "💬 Напишите ваше следующее сообщение:",
-                parse_mode='HTML'
-            )
+    try:
+        if query.data == "continue_chat":
+            personality_data = context.user_data.get('personality_data')
+            if personality_data:
+                await query.edit_message_text(
+                    f"{personality_data['emoji']} <b>Продолжаем с {personality_data['name']}</b>\n\n"
+                    "💬 Ваше следующее сообщение:",
+                    parse_mode='HTML'
+                )
             return CHATTING_WITH_PERSONALITY
 
-    elif query.data == "change_personality":
-        return await talk_start(update, context)
+        elif query.data == "change_personality":
+            return await talk_start(update, context)
 
-    elif query.data == "finish_talk":
-        # Очищаем данные о личности
-        context.user_data.pop('current_personality', None)
-        context.user_data.pop('personality_data', None)
+        elif query.data == "finish_talk":
+            context.user_data.clear()
+            return -1
 
-        return -1
+    except Exception as e:
+        logger.error(f"Ошибка в handle_personality_callback: {e}", exc_info=True)
 
     return CHATTING_WITH_PERSONALITY
+
+
+async def edit_or_send_message(query, text: str, has_photo: bool = False) -> None:
+    """
+    Вспомогательная функция для редактирования сообщения с фото или без.
+
+    Args:
+        query: CallbackQuery объект.
+        text: Текст сообщения.
+        has_photo: Флаг наличия фото в исходном сообщении.
+    """
+    if has_photo:
+        await query.edit_message_caption(caption=text, parse_mode='HTML')
+    else:
+        await query.edit_message_text(text=text, parse_mode='HTML')
+
+
+async def send_error_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Отправляет стандартное сообщение об ошибке.
+
+    Args:
+        update: Объект Update.
+        context: Контекст бота.
+    """
+    try:
+        if update.callback_query:
+            if update.callback_query.message.photo:
+                await update.callback_query.edit_message_caption(DEFAULT_ERROR_MESSAGE)
+            else:
+                await update.callback_query.edit_message_text(DEFAULT_ERROR_MESSAGE)
+        else:
+            await update.message.reply_text(DEFAULT_ERROR_MESSAGE)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения об ошибке: {e}")
