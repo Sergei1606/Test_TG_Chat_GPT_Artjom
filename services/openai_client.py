@@ -5,8 +5,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Инициализация клиента OpenAI для версии API >=1.0.0
-client = openai.OpenAI(api_key=CHATGPT_TOKEN)
+# Инициализация асинхронного клиента OpenAI для версии API >=1.0.0
+client = openai.AsyncOpenAI(api_key=CHATGPT_TOKEN)
 
 
 async def get_chatgpt_response(prompt: str, personality_prompt: Optional[str] = None) -> str:
@@ -17,7 +17,7 @@ async def get_chatgpt_response(prompt: str, personality_prompt: Optional[str] = 
         if personality_prompt:
             messages.insert(0, {"role": "system", "content": personality_prompt})
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
             temperature=0.7,

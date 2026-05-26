@@ -217,6 +217,8 @@ async def handle_personality_callback(update: Update, context: ContextTypes.DEFA
         context.user_data.pop('current_personality', None)
         context.user_data.pop('personality_data', None)
 
+        from handlers.basic import start
+        await start(update, context)
         return -1
 
     return CHATTING_WITH_PERSONALITY

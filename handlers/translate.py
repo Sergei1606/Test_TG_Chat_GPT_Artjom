@@ -149,10 +149,8 @@ async def handle_translate_callback(update: Update, context: ContextTypes.DEFAUL
     if query.data == "change_language":
         return await translate_start(update, context)
     elif query.data in ["cancel_translate", "finish_translate"]:
-        await query.edit_message_text(
-            "🏠 Возвращаемся в главное меню...",
-            parse_mode='HTML'
-        )
+        from handlers.basic import start
+        await start(update, context)
         return ConversationHandler.END
 
     return TRANSLATING_TEXT

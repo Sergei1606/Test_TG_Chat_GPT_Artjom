@@ -279,20 +279,13 @@ async def handle_quiz_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data.pop('current_question', None)
             context.user_data.pop('correct_answer', None)
 
-            # Создаем кнопки главного меню
-            keyboard = [
-                [InlineKeyboardButton("🎲 Случайный факт", callback_data="random_interface")],
-                [InlineKeyboardButton("🤖 ChatGPT", callback_data="gpt_interface")],
-                [InlineKeyboardButton("👥 Диалог с личностью", callback_data="talk_interface")],
-                [InlineKeyboardButton("🧠 Квиз", callback_data="quiz_interface")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                final_text,
-                parse_mode='HTML',
-                reply_markup=reply_markup
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=final_text,
+                parse_mode='HTML'
             )
+            from handlers.basic import start
+            await start(update, context)
             return -1
 
     except Exception as e:

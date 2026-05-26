@@ -153,10 +153,8 @@ async def handle_resume_callback(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data.pop('resume', None)
         return await resume_start(update, context)
     elif query.data == "finish_resume":
-        await query.edit_message_text(
-            "🏠 Возвращаемся в главное меню...",
-            parse_mode='HTML'
-        )
+        from handlers.basic import start
+        await start(update, context)
         return ConversationHandler.END
 
     return GENERATING_RESUME

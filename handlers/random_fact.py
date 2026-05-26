@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -8,9 +9,16 @@ logger = logging.getLogger(__name__)
 
 
 async def random_fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка команды /random_fact"""
+    """Обработка команды /random"""
     try:
-        loading_msg = await update.message.reply_text("🎲 Генерирую интересный факт... ⏳")
+        image_path = "data/images/random_fact.jpeg"
+        chat_id = update.effective_chat.id
+        
+        if os.path.exists(image_path):
+            with open(image_path, 'rb') as photo:
+                await context.bot.send_photo(chat_id=chat_id, photo=photo)
+                
+        loading_msg = await context.bot.send_message(chat_id=chat_id, text="🎲 Генерирую интересный факт... ⏳")
         fact = await get_random_fact()
         keyboard = [
                     [InlineKeyboardButton("🎲 Хочу ещё факт", callback_data="random_more")],
@@ -26,7 +34,7 @@ async def random_fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Ошибка при получении факта от OpenAI: {e}")
-        await update.message.reply_text("🤔 К сожалению, не удалось получить факт в данный момент. Попробуйте позже!")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🤔 К сожалению, не удалось получить факт в данный момент. Попробуйте позже!")
 
 
 async def random_fact_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,64 +43,11 @@ async def random_fact_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
 
     if query.data == "random_more":
-        try:
-            await query.edit_message_text("🎲 Генерирую новый факт... ⏳")
-
-            fact = await get_random_fact()
-            keyboard = [
-                [InlineKeyboardButton("🎲 Хочу ещё факт", callback_data="random_more")],
-                [InlineKeyboardButton("🏠 Закончить", callback_data="random_finish")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                f"🧠 <b>Интересный факт:</b>\n\n{fact}",
-                parse_mode='HTML',
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"Ошибка при получении нового факта: {e}")
-            await query.edit_message_text(
-                "😔 Произошла ошибка. Попробуйте позже.\n"
-                "Используйте /start чтобы вернуться в меню."
-            )
+        await random_fact(update, context)
 
     elif query.data == "random_finish":
-
-        keyboard = [
-            [InlineKeyboardButton("🎲 Рандомный факт", callback_data="random_fact")],
-            [InlineKeyboardButton("🤖 ChatGPT", callback_data="gpt_interface")],
-            [InlineKeyboardButton("👥 Диалог с личностью", callback_data="talk_interface")],
-            [InlineKeyboardButton("🧠 Квиз", callback_data="quiz_interface")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "🎉 <b>Добро пожаловать в ChatGPT бота!</b>\n\n"
-            "Выберите одну из доступных функций:",
-            parse_mode='HTML',
-            reply_markup=reply_markup
-        )
+        from handlers.basic import start
+        await start(update, context)
 
     elif query.data == "random_fact":
-        try:
-            await query.edit_message_text("🎲 Генерирую интересный факт... ⏳")
-
-            fact = await get_random_fact()
-            keyboard = [
-                [InlineKeyboardButton("🎲 Хочу ещё факт", callback_data="random_more")],
-                [InlineKeyboardButton("🏠 Закончить", callback_data="random_finish")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                f"🧠 <b>Интересный факт:</b>\n\n{fact}",
-                parse_mode='HTML',
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"Ошибка при получении факта из меню: {e}")
-            await query.edit_message_text(
-                "😔 Произошла ошибка. Попробуйте позже.\n"
-                "Используйте /start чтобы вернуться в меню."
-            )
+        await random_fact(update, context)
