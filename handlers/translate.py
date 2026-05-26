@@ -90,9 +90,11 @@ async def select_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['target_language'] = lang_code
     lang_name = LANGUAGES.get(lang_code, "выбранный язык")
 
-    await query.edit_message_text(
-        f"🌍 Выбран язык: <b>{lang_name}</b>\n\n"
-        "Теперь отправьте текст, который нужно перевести:",
+    await query.message.delete()
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"🌍 Выбран язык: <b>{lang_name}</b>\n\n"
+             "Теперь отправьте текст, который нужно перевести:",
         parse_mode='HTML'
     )
 
